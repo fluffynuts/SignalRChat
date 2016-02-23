@@ -1,0 +1,146 @@
+﻿@{
+    ViewBag.Title = "Chat!";
+}
+@section scripts {
+    <script type="text/javascript">
+        $(function () {
+            var me = null;
+            var oneLine;
+            var mkEl = function(tag) {
+                return $(['<', tag, '></', tag, '>'].join(''));
+            };
+            var mkDiv = function(withText, withClass) {
+                var el = mkEl('div');
+                el.text(withText || '');
+                if (withClass) {
+                    el.addClass(withClass);
+                }
+                return el;
+            };
+            var mkSender = function(name) {
+                return mkDiv(name, 'sender');
+            };
+            var mkMessage = function(message) {
+                return ((message) || '').split('\n').map(function(line) {
+                    return line.trim();
+                }).map(function(line) {
+                    return mkDiv(line, 'message');
+                });
+            };
+            var mkMessageLineFor = function(sender, message) {
+                var container = mkEl('div');
+                mkSender(sender).appendTo(container);
+                var linesContainer = mkEl('div');
+                linesContainer.appendTo(container);
+                linesContainer.addClass('line-container');
+                mkMessage(message).forEach(function(el) {
+                    el.appendTo(linesContainer);
+                });
+                return container;
+            };
+            var chat = $.connection.chatHub;
+            var nameFor = function(messageData) {
+                return messageData && messageData.Sender && messageData.Sender.Name ? messageData.Sender.Name : '(system)';
+            };
+
+            chat.on('sendMessage', function(messageData) {
+                var target = $('#chats-container').find('#' + (messageData.Target || 'main'));
+                mkMessageLineFor(nameFor(messageData), messageData.Message).appendTo(target);
+            });
+
+            var sendMessage = function() {
+                var input = $('#message');
+                var message = input.val().trim();
+                if (!message) {
+                    return;
+                }
+                input.val('');
+                input.css('height', '2em');
+                chat.server.sendMessage({
+                    sender: me,
+                    target: 'main',
+                    message: message
+                }).fail(function (err) {
+                    log('send error: ' + (err || 'unknown'));
+                });
+            };
+
+            var log = function(message) {
+                if (console && console.log) {
+                    console.log(message);
+                }
+            };
+
+            var getExistingRegistration = function() {
+                var existingRegistration = $.cookie('chat-registration');
+                if (!existingRegistration) {
+                    return null;
+                }
+                try {
+                    return JSON.parse(existingRegistration);
+                } catch(e) {
+                    return null;
+                } 
+            };
+            var cacheRegistration = function(regObj) {
+                var asString = JSON.stringify(regObj);
+                $.cookie('chat-registration', asString);
+            };
+            var register = function() {
+                var existingRegistration = getExistingRegistration();
+                if (existingRegistration) {
+                    var deferred = $.Deferred();
+                    chat.server.validateRegistration(existingRegistration)
+                        .then(function(validatedRegistration) {
+                            cacheRegistration(validatedRegistration);
+                            deferred.resolve(existingRegistration);
+                        }).fail(function() {
+                            chat.server.register().then(function(registrationData) {
+                                cacheRegistration(registrationData);
+                                deferred.resolve(registrationData);
+                            });
+                        });
+                    return deferred.promise();
+                }
+                return chat.server.register().then(function(registrationData) {
+                    cacheRegistration(registrationData);
+                    return registrationData;
+                });
+            };
+
+            var afterConnected = function(registrationResult) {
+                me = registrationResult;
+                var messageEl = $('#message');
+                oneLine = parseInt(messageEl.height());
+                $('#name').text(registrationResult.Name);
+                $('#send').removeAttr('disabled');
+                $('#send').on('click', sendMessage);
+                messageEl.on('keydown', function(ev) {
+                    if (ev.keyCode !== 13) {
+                        return;
+                    }
+                    if (!ev.shiftKey) {
+                        return sendMessage();
+                    }
+                    var currentLines = parseInt(messageEl.height()) / oneLine;
+                    messageEl.height((currentLines + 1) * oneLine);
+                });
+            };
+
+            $('#send').attr('disabled', 'disabled');
+            $.connection.hub.start().done(function() {
+                register().then(afterConnected);
+            }).fail(function(err) {
+                log('can\'t start hub: ' + (err || '(unknown error)'));
+            });
+        });
+    </script>
+}
+<div id="chats-container">
+    <div id="main"></div>
+    <div class="bottom-bar">
+        <label id="name"></label>
+        <textarea id="message"></textarea>
+        <button id="send">Send</button>
+    </div>
+</div>
