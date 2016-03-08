@@ -38,11 +38,11 @@
                 });
                 return container;
             };
-            var chat = $.connection.chatHub;
             var nameFor = function(messageData) {
                 return messageData && messageData.Sender && messageData.Sender.Name ? messageData.Sender.Name : '(system)';
             };
 
+            var chat = $.connection.chatHub;
             chat.on('sendMessage', function(messageData) {
                 var target = $('#chats-container').find('#' + (messageData.Target || 'main'));
                 mkMessageLineFor(nameFor(messageData), messageData.Message).appendTo(target);
